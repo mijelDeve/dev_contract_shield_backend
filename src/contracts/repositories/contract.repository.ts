@@ -1,0 +1,95 @@
+import { Injectable } from '@nestjs/common';
+import { SupabaseService } from '../../supabase/supabase.service';
+import { ContractWithRelations } from '../../entities/contract.entity';
+
+interface ContractFilters {
+  userId: number;
+  systemStatusCode?: string;
+  genlayerStatusCode?: string;
+}
+
+@Injectable()
+export class ContractRepository {
+  constructor(private supabaseService: SupabaseService) {}
+
+  async findAll(
+    filters: ContractFilters,
+    page: number,
+    limit: number,
+  ): Promise<{ data: ContractWithRelations[]; total: number }> {
+    const offset = (page - 1) * limit;
+    const client = this.supabaseService.admin;
+
+    let query = client
+      .from('contracts')
+      .select(
+        `
+        *,
+        contract_system_statuses(id, code, name_es, name_en),
+        genlayer_transaction_statuses(id, code, name, phase),
+        creator:users!creator_id(id, username),
+        developer:users!developer_id(id, username)
+      `,
+        { count: 'exact' },
+      )
+      .or(`creator_id.eq.${filters.userId},developer_id.eq.${filters.userId}`);
+
+    if (filters.systemStatusCode) {
+      query = query.eq(
+        'contract_system_statuses.code',
+        filters.systemStatusCode,
+      );
+    }
+
+    if (filters.genlayerStatusCode) {
+      query = query.eq(
+        'genlayer_transaction_statuses.code',
+        filters.genlayerStatusCode,
+      );
+    }
+
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const response = await query;
+    const { data, error, count } = response as {
+      data: ContractWithRelations[];
+      error: Error | null;
+      count: number;
+    };
+
+    if (error) throw error;
+
+    return {
+      data: data || [],
+      total: count || 0,
+    };
+  }
+
+  async findById(id: number): Promise<ContractWithRelations | null> {
+    const client = this.supabaseService.admin;
+
+    const response = await client
+      .from('contracts')
+      .select(
+        `
+        *,
+        contract_system_statuses(id, code, name_es, name_en),
+        genlayer_transaction_statuses(id, code, name, phase),
+        creator:users!creator_id(id, username),
+        developer:users!developer_id(id, username)
+      `,
+      )
+      .eq('id', id)
+      .single();
+
+    const { data, error } = response as {
+      data: ContractWithRelations;
+      error: Error | null;
+    };
+
+    if (error) return null;
+    return data;
+  }
+}

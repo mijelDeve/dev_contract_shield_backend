@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
   CanActivate,
@@ -25,17 +24,10 @@ export class SupabaseAuthGuard implements CanActivate {
       'your-super-secret-jwt-key-change-in-production';
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
 
-    console.log('Auth Guard - Headers:', request.headers);
-    console.log('Auth Guard - Authorization:', request.headers.authorization);
-
     const token = this.extractTokenFromHeader(request);
-    console.log(
-      'Auth Guard - Token extracted:',
-      token ? `${token.substring(0, 50)}...` : 'null',
-    );
 
     if (!token) {
       throw new UnauthorizedException('Missing authorization token');
@@ -43,26 +35,24 @@ export class SupabaseAuthGuard implements CanActivate {
 
     try {
       const payload = jwt.verify(token, this.jwtSecret) as JwtPayload;
-      console.log('Auth Guard - Payload verified:', payload);
       (request as Request & { user: JwtPayload }).user = payload;
       return true;
     } catch (error) {
-      console.log('Auth Guard - Token verification error:', error.message);
-      throw new UnauthorizedException('Invalid or expired token');
+      const errorMessage = (error as Error).message || 'Invalid token';
+      throw new UnauthorizedException(
+        `Invalid or expired token: ${errorMessage}`,
+      );
     }
   }
 
   private extractTokenFromHeader(request: Request): string | undefined {
     const authHeader = request.headers.authorization;
-    console.log('Auth Guard - Auth header value:', authHeader);
 
     if (!authHeader) return undefined;
 
     const parts = authHeader.split(' ');
-    console.log('Auth Guard - Parts:', parts);
 
     if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      console.log('Auth Guard - Invalid format');
       return undefined;
     }
 
