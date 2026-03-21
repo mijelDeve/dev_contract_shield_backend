@@ -48,53 +48,53 @@ INSERT INTO genlayer_transaction_statuses (code, name, description, phase) VALUE
 ('FINALIZED',   'FINALIZED',    'Decisión irreversible: pasó Finality Window sin apelación o apelación resuelta.', 'Finality completa → estado del contrato actualizado permanentemente.'),
 ('UNDETERMINED','UNDETERMINED', 'No se alcanzó consenso (después de rounds). Puede volver a proposing o finalizar sin cambio.', 'Caso raro: falta acuerdo → a menudo finaliza igual tras window.');
 
--- =============================================
--- 3. Tabla: Usuarios
--- =============================================
-CREATE TABLE users (
-    id                  SERIAL PRIMARY KEY,
-    username            VARCHAR(50) UNIQUE NOT NULL,
-    email               VARCHAR(255) UNIQUE NOT NULL,
-    password_hash       VARCHAR(255) NOT NULL,
-    full_name           VARCHAR(100),
-    wallet_address      VARCHAR(42),                              -- Para GenLayer / EVM
-    is_client           BOOLEAN DEFAULT TRUE,
-    is_developer        BOOLEAN DEFAULT FALSE,
-    profile_picture_url VARCHAR(512),
-    bio                 TEXT,
-    is_verified         BOOLEAN DEFAULT FALSE,
-    token_balance       DECIMAL(18, 8) DEFAULT 0,                -- Saldo en tokens GenLayer (para bonds)
-    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- =============================================
--- 4. Tabla: Contratos (principal)
--- =============================================
-CREATE TABLE contracts (
-    id                      SERIAL PRIMARY KEY,
-    title                   VARCHAR(255) NOT NULL,
-    description             TEXT,
-    amount                  DECIMAL(18, 2) NOT NULL,             -- Monto en escrow
-    start_date              DATE NOT NULL,
-    due_date                DATE NOT NULL,
-    zip_file_path           VARCHAR(512),
-    github_repo_url         VARCHAR(512),
-    is_github_project       BOOLEAN DEFAULT FALSE,
-    
-    -- Estados (referenciamos las tablas maestras)
-    system_status_id        INTEGER NOT NULL REFERENCES contract_system_statuses(id) DEFAULT 1,  -- Por defecto: created
-    genlayer_status_id      INTEGER REFERENCES genlayer_transaction_statuses(id),                -- Puede ser NULL al inicio
-    
-    creator_id              INTEGER NOT NULL REFERENCES users(id),       -- Cliente que crea
-    developer_id            INTEGER REFERENCES users(id),                -- Desarrollador asignado (puede ser NULL hasta asignar)
-    
-    created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Índices útiles
-CREATE INDEX idx_contracts_creator ON contracts(creator_id);
-CREATE INDEX idx_contracts_developer ON contracts(developer_id);
-CREATE INDEX idx_contracts_system_status ON contracts(system_status_id);
-CREATE INDEX idx_contracts_genlayer_status ON contracts(genlayer_status_id);
+-- ============================================================                                                                                       
+-- 3. Tabla: contracts                            
+-- ============================================================                                                                                       
+  CREATE TABLE contracts (                                                                                                                              
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),                                                                                       
+    contract_id       VARCHAR(66),                                                                                                                      
+    title             VARCHAR(255) NOT NULL,                        
+    description       TEXT,
+    acceptance_rule   TEXT NOT NULL,
+    amount            DECIMAL(18, 2) NOT NULL,                                                                                                          
+    currency          VARCHAR(10) NOT NULL DEFAULT 'GEN',
+    language_stack    VARCHAR(100) NOT NULL,                                                                                                            
+    start_date        TIMESTAMPTZ,                                  
+    due_date          TIMESTAMPTZ,                                                                                                                      
+    zip_file_path     TEXT,                                                                                                                             
+    github_repo_url   VARCHAR(512),
+    is_github_project BOOLEAN NOT NULL DEFAULT false,                                                                                                   
+    status            VARCHAR(50) NOT NULL DEFAULT 'draft',         
+    genlayer_status   VARCHAR(50) NOT NULL DEFAULT 'Created',                                                                                           
+    client_id         UUID REFERENCES users(id) ON DELETE SET NULL,                                                                                     
+    developer_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),                                                                                               
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()            
+  );                                                                                                                                                    
+                                                                    
+  CREATE UNIQUE INDEX idx_contracts_contract_id ON contracts(contract_id) WHERE contract_id IS NOT NULL;                                                
+  CREATE INDEX idx_contracts_client_id          ON contracts(client_id);
+  CREATE INDEX idx_contracts_developer_id       ON contracts(developer_id);                                                                             
+  CREATE INDEX idx_contracts_status             ON contracts(status);                                                                                   
+  CREATE INDEX idx_contracts_genlayer_status    ON contracts(genlayer_status);
+  CREATE INDEX idx_contracts_created_at         ON contracts(created_at DESC);                                                                          
+                                                                                                                                                        
+-- ============================================================                                                                                       
+-- 4. Tabla: adjudications                                                                                                                              
+-- ============================================================                                                                                       
+  CREATE TABLE adjudications (                                      
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    contract_id       VARCHAR(66) NOT NULL,
+    verdict           VARCHAR(20) NOT NULL,
+    reason            TEXT,                                                                                                                             
+    layer_a_pass_rate DECIMAL(5, 4),
+    layer_c_status    VARCHAR(20),                                                                                                                      
+    rule_applied      TEXT,                                         
+    evidence_raw      JSONB,                                                                                                                            
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()            
+  );                                                                                                                                                    
+   
+  CREATE INDEX idx_adjudications_contract_id ON adjudications(contract_id);                                                                             
+  CREATE INDEX idx_adjudications_verdict     ON adjudications(verdict);
+  CREATE INDEX idx_adjudications_created_at  ON adjudications(created_at DESC); 
