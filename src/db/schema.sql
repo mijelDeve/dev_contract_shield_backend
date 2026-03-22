@@ -98,3 +98,11 @@ INSERT INTO genlayer_transaction_statuses (code, name, description, phase) VALUE
   CREATE INDEX idx_adjudications_contract_id ON adjudications(contract_id);                                                                             
   CREATE INDEX idx_adjudications_verdict     ON adjudications(verdict);
   CREATE INDEX idx_adjudications_created_at  ON adjudications(created_at DESC); 
+
+
+
+
+ALTER TABLE contracts
+ADD COLUMN coverage INTEGER 
+    DEFAULT 0 
+    CHECK (coverage >= 0 AND coverage <= 100);

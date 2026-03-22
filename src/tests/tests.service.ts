@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { spawn } from 'child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { ContractRepository } from '../contracts/repositories/contract.repository';
 import { TestExecution, TestReport } from '../entities/test-report.entity';
@@ -60,7 +60,7 @@ export class TestsService {
     githubRepoUrl: string,
   ): Promise<void> {
     const contractIdStr = String(contractId);
-    const executionId = uuidv4();
+    const executionId = randomUUID();
     const tempDir = path.join(
       process.cwd(),
       'temp-tests',
