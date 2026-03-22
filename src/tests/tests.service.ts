@@ -102,6 +102,22 @@ export class TestsService {
       const result = await this.executeNodeTests(tempDir, contractIdStr);
       rawOutput = result.output;
 
+      const storedCoverage = await this.contractRepository.updateCoverage(
+        contractId,
+        result.coverage,
+      );
+      this.log(
+        contractIdStr,
+        `💾 Coverage guardado en contrato: ${storedCoverage}%`,
+      );
+
+      const updatedContract =
+        await this.contractRepository.findById(contractId);
+      this.log(
+        contractIdStr,
+        `🔎 Coverage leido desde DB: ${updatedContract?.coverage ?? 'null'}`,
+      );
+
       const report: TestReport = {
         contractId,
         passed: result.passed,
@@ -129,6 +145,26 @@ export class TestsService {
       const errorMessage =
         error instanceof Error ? error.message : 'Error desconocido';
       this.log(contractIdStr, `❌ Error: ${errorMessage}`);
+
+      try {
+        const storedCoverage = await this.contractRepository.updateCoverage(
+          contractId,
+          0,
+        );
+        this.log(
+          contractIdStr,
+          `💾 Coverage guardado en contrato: ${storedCoverage}%`,
+        );
+      } catch (coverageError) {
+        const coverageErrorMessage =
+          coverageError instanceof Error
+            ? coverageError.message
+            : 'Error guardando coverage';
+        this.log(
+          contractIdStr,
+          `⚠️ No se pudo guardar coverage=0: ${coverageErrorMessage}`,
+        );
+      }
 
       this.testExecutions.set(contractIdStr, {
         status: 'failed',
@@ -339,6 +375,45 @@ test('script.js carga correctamente', async () => {
 
   getExecution(contractId: string): TestExecution | undefined {
     return this.testExecutions.get(contractId);
+  }
+
+  async getCoverageStatus(contractId: number): Promise<{
+    status: 'in_progress' | 'completed' | 'not_found';
+    message: string;
+    coverage: number | null;
+  }> {
+    const execution = this.testExecutions.get(String(contractId));
+
+    if (execution?.status === 'running' || execution?.status === 'pending') {
+      return {
+        status: 'in_progress',
+        message: 'La ejecución de tests aún está en proceso',
+        coverage: null,
+      };
+    }
+
+    const contract = await this.contractRepository.findById(contractId);
+    if (!contract) {
+      return {
+        status: 'not_found',
+        message: 'Contrato no encontrado',
+        coverage: null,
+      };
+    }
+
+    if (contract.coverage === null || contract.coverage === undefined) {
+      return {
+        status: 'in_progress',
+        message: 'El coverage aún no está disponible',
+        coverage: null,
+      };
+    }
+
+    return {
+      status: 'completed',
+      message: 'Coverage disponible',
+      coverage: Number(contract.coverage),
+    };
   }
 
   getAllExecutions(): Map<string, TestExecution> {

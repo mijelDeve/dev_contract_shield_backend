@@ -7,6 +7,7 @@ export interface Contract {
   id: number;
   title: string;
   description?: string;
+  coverage?: number | null;
   amount: number;
   start_date: string;
   due_date: string;
@@ -32,6 +33,7 @@ export interface ContractResponse {
   id: number;
   title: string;
   description?: string;
+  coverage?: number | null;
   amount: number;
   startDate: string;
   dueDate: string;

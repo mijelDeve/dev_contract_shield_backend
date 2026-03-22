@@ -97,4 +97,26 @@ export class TestsController {
       report: execution.report,
     };
   }
+
+  @Get('contracts/:id/tests/coverage')
+  @UseGuards(SupabaseAuthGuard)
+  async getCoverage(@Param('id') id: string): Promise<{
+    status: string;
+    message: string;
+    coverage: number | null;
+  }> {
+    const contractId = parseInt(id, 10);
+
+    if (isNaN(contractId)) {
+      throw new NotFoundException('ID de contrato inválido');
+    }
+
+    const result = await this.testsService.getCoverageStatus(contractId);
+
+    if (result.status === 'not_found') {
+      throw new NotFoundException('Contrato no encontrado');
+    }
+
+    return result;
+  }
 }

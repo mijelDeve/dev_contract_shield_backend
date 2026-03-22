@@ -45,6 +45,7 @@ export class ContractsService {
       id: contract.id,
       title: contract.title,
       description: contract.description,
+      coverage: contract.coverage ?? null,
       amount: parseFloat(String(contract.amount)),
       startDate: contract.start_date,
       dueDate: contract.due_date,

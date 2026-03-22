@@ -92,4 +92,23 @@ export class ContractRepository {
     if (error) return null;
     return data;
   }
+
+  async updateCoverage(id: number, coverage: number): Promise<number> {
+    const client = this.supabaseService.admin;
+
+    const { data, error } = await client
+      .from('contracts')
+      .update({ coverage: Number(coverage) })
+      .eq('id', id)
+      .select('id, coverage')
+      .single();
+
+    if (error) throw error;
+
+    if (!data) {
+      throw new Error(`No se pudo actualizar coverage para contrato ${id}`);
+    }
+
+    return Number((data as { coverage: number | null }).coverage ?? 0);
+  }
 }
