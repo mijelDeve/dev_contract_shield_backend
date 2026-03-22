@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ContractsModule } from './contracts/contracts.module';
 import { TestsModule } from './tests/tests.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { TestsModule } from './tests/tests.module';
     AuthModule,
     ContractsModule,
     TestsModule,
+    ChatModule,
     HealthModule,
   ],
   controllers: [AppController],
