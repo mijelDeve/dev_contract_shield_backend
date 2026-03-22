@@ -67,6 +67,39 @@ export class ContractRepository {
     };
   }
 
+  async create(data: {
+    title: string;
+    amount: number;
+    description?: string;
+    start_date: string;
+    due_date: string;
+    is_github_project: boolean;
+    system_status_id: number;
+    creator_id: number;
+    developer_id: number;
+    coverage: number;
+  }): Promise<ContractWithRelations> {
+    const client = this.supabaseService.admin;
+
+    const { data: created, error } = await client
+      .from('contracts')
+      .insert(data)
+      .select(
+        `
+        *,
+        contract_system_statuses(id, code, name_es, name_en),
+        genlayer_transaction_statuses(id, code, name, phase),
+        creator:users!creator_id(id, username),
+        developer:users!developer_id(id, username)
+      `,
+      )
+      .single();
+
+    if (error) throw error;
+
+    return created as ContractWithRelations;
+  }
+
   async findById(id: number): Promise<ContractWithRelations | null> {
     const client = this.supabaseService.admin;
 

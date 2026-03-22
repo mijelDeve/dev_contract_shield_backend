@@ -5,6 +5,7 @@ import {
   PaginatedContractsResponse,
   ContractWithRelations,
 } from '../entities/contract.entity';
+import { CreateContractDto } from './dto/create-contract.dto';
 
 @Injectable()
 export class ContractsService {
@@ -38,6 +39,23 @@ export class ContractsService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async create(dto: CreateContractDto): Promise<ContractResponse> {
+    const contract = await this.contractRepository.create({
+      title: dto.title,
+      amount: dto.amount,
+      description: dto.description ?? '',
+      start_date: dto.startDate,
+      due_date: dto.dueDate,
+      is_github_project: dto.isGithubProject,
+      system_status_id: 1,
+      creator_id: 10,
+      developer_id: 9,
+      coverage: 0,
+    });
+
+    return this.mapToResponse(contract);
   }
 
   private mapToResponse(contract: ContractWithRelations): ContractResponse {

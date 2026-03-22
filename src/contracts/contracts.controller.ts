@@ -1,8 +1,20 @@
-import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { ContractsService } from './contracts.service';
 import { ListContractsDto } from './dto/list-contracts.dto';
+import { CreateContractDto } from './dto/create-contract.dto';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { PaginatedContractsResponse } from '../entities/contract.entity';
+import {
+  ContractResponse,
+  PaginatedContractsResponse,
+} from '../entities/contract.entity';
 
 interface JwtPayload {
   sub: string;
@@ -15,6 +27,13 @@ interface JwtPayload {
 @UseGuards(SupabaseAuthGuard)
 export class ContractsController {
   constructor(private contractsService: ContractsService) {}
+
+  @Post()
+  async create(
+    @Body() createContractDto: CreateContractDto,
+  ): Promise<ContractResponse> {
+    return this.contractsService.create(createContractDto);
+  }
 
   @Get()
   async findAll(
