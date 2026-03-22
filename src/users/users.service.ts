@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { UserRepository } from './repositories/user.repository';
 import { CreateUserDto, UpdateUserDto, User } from '../entities/user.entity';
 
-interface UserSelectOption {
+export interface UserSelectOption {
   id: string;
   username: string;
   email: string;

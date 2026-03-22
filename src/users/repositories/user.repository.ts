@@ -75,7 +75,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   async findAllUsers(options?: FindAllUsersOptions): Promise<UserEntity[]> {
-    let query = this.client.from(this.tableName).select('*');
+    let query = this.adminClient.from(this.tableName).select('*');
 
     if (options?.isDeveloper !== undefined) {
       query = query.eq('is_developer', options.isDeveloper);
