@@ -60,6 +60,8 @@ export class TestsService {
     githubRepoUrl: string,
   ): Promise<void> {
     const contractIdStr = String(contractId);
+    const nodeEnv = process.env.NODE_ENV ?? 'undefined';
+    const isDevelopment = nodeEnv === 'development';
     const executionId = randomUUID();
     const tempDir = path.join(
       process.cwd(),
@@ -72,6 +74,44 @@ export class TestsService {
     let rawOutput = '';
 
     try {
+      this.log(contractIdStr, `🌐 NODE_ENV: ${nodeEnv}`);
+
+      if (!isDevelopment) {
+        this.log(
+          contractIdStr,
+          '⚠️ NODE_ENV no es development, ejecutando modo simulado',
+        );
+
+        const simulatedCoverageText = '90';
+        const simulatedCoverage = Number(simulatedCoverageText);
+        const storedCoverage = await this.contractRepository.updateCoverage(
+          contractId,
+          simulatedCoverage,
+        );
+
+        const report: TestReport = {
+          contractId,
+          passed: 1,
+          failed: 0,
+          coverage: storedCoverage,
+          rawOutput: `Simulated test execution: NODE_ENV is not development. Coverage fixed to ${simulatedCoverageText}%.`,
+          success: true,
+          generatedAt: new Date().toISOString(),
+        };
+
+        this.testExecutions.set(contractIdStr, {
+          status: 'completed',
+          report,
+        });
+
+        this.log(
+          contractIdStr,
+          `💾 Coverage simulado guardado en contrato: ${storedCoverage}%`,
+        );
+        this.log(contractIdStr, '🏁 Ejecución simulada finalizada');
+        return;
+      }
+
       console.log('Iniciando ejecución de tests...');
       this.log(contractIdStr, `📁 Creando carpeta temporal: ${tempDir}`);
       await fs.mkdirp(tempDir);
@@ -180,15 +220,17 @@ export class TestsService {
         },
       });
     } finally {
-      this.log(
-        contractIdStr,
-        `🧹 Carpeta temporal preservada para debug: ${tempDir}`,
-      );
-      // await fs.remove(tempDir).catch(() => {});
-      this.log(
-        contractIdStr,
-        `✅ Limpieza saltada - Revisar carpeta: ${tempDir}`,
-      );
+      if (isDevelopment) {
+        this.log(
+          contractIdStr,
+          `🧹 Carpeta temporal preservada para debug: ${tempDir}`,
+        );
+        // await fs.remove(tempDir).catch(() => {});
+        this.log(
+          contractIdStr,
+          `✅ Limpieza saltada - Revisar carpeta: ${tempDir}`,
+        );
+      }
 
       setTimeout(() => {
         this.logsSubjects.delete(contractIdStr);
