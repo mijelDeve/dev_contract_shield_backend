@@ -2,6 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { UserRepository } from './repositories/user.repository';
 import { CreateUserDto, UpdateUserDto, User } from '../entities/user.entity';
 
+interface UserSelectOption {
+  id: string;
+  username: string;
+  email: string;
+  fullName?: string;
+  isDeveloper: boolean;
+  profilePictureUrl?: string;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private userRepository: UserRepository) {}
@@ -9,9 +18,27 @@ export class UsersService {
   async findAll(options?: {
     limit?: number;
     offset?: number;
+    isDeveloper?: boolean;
   }): Promise<User[]> {
     const users = await this.userRepository.findAllUsers(options);
     return users as unknown as User[];
+  }
+
+  async findAllForContractSelect(options?: {
+    limit?: number;
+    offset?: number;
+    isDeveloper?: boolean;
+  }): Promise<UserSelectOption[]> {
+    const users = await this.userRepository.findAllUsers(options);
+
+    return users.map((user) => ({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      fullName: user.full_name,
+      isDeveloper: user.is_developer,
+      profilePictureUrl: user.profile_picture_url,
+    }));
   }
 
   async findById(id: string): Promise<User> {

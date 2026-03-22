@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { spawn } from 'child_process';
 import { randomUUID } from 'node:crypto';
@@ -33,6 +33,96 @@ export class TestsService {
     return {
       message: 'Tests iniciados',
       streamUrl: `/logs/${contractId}/stream`,
+    };
+  }
+
+  async saveGithubRepoAndStartFlow(
+    contractId: number,
+    userId: string,
+    githubRepoUrl: string,
+  ): Promise<{
+    message: string;
+    streamUrl: string;
+    coverageUrl: string;
+    features: string;
+    systemStatusId: number;
+  }> {
+    const testingSystemStatusId = 3;
+    const updatedContract =
+      await this.contractRepository.updateGithubRepoAndStatus(
+        contractId,
+        githubRepoUrl,
+        testingSystemStatusId,
+      );
+
+    const features = updatedContract.description ?? '';
+    this.log(
+      String(contractId),
+      `🧩 Features simulados extraidos desde description (${features.length} chars)`,
+    );
+
+    const testStart = await this.validateAndRunTests(contractId, userId);
+
+    return {
+      message:
+        'Repositorio guardado, estado cambiado a testing e inicio de tests',
+      streamUrl: testStart.streamUrl,
+      coverageUrl: `/contracts/${contractId}/tests/coverage`,
+      features,
+      systemStatusId: testingSystemStatusId,
+    };
+  }
+
+  async submitGenlayerApproval(
+    contractId: number,
+    userId: string,
+  ): Promise<{
+    message: string;
+    contractId: number;
+    systemStatusId: number;
+    approved: boolean;
+    sentToGenlayer: boolean;
+    coverage: number;
+    requirementsComparison: string;
+  }> {
+    void userId;
+
+    const contract = await this.contractRepository.findById(contractId);
+    if (!contract) {
+      throw new NotFoundException('Contrato no encontrado');
+    }
+
+    const approvedSystemStatusId = 7;
+    const storedSystemStatus = await this.contractRepository.updateSystemStatus(
+      contractId,
+      approvedSystemStatusId,
+    );
+
+    const requirementsComparison = contract.description ?? '';
+    const coverage = Number(contract.coverage ?? 0);
+
+    this.log(
+      String(contractId),
+      '🤖 Comparacion de requerimientos generada (description usada como source)',
+    );
+    this.log(
+      String(contractId),
+      `📤 Payload enviado a GenLayer (simulado): coverage=${coverage}, featuresLength=${requirementsComparison.length}`,
+    );
+    this.log(
+      String(contractId),
+      `✅ Estado actualizado a approved (system_status_id=${storedSystemStatus})`,
+    );
+
+    return {
+      message:
+        'Comparacion enviada a GenLayer y contrato actualizado a approved',
+      contractId,
+      systemStatusId: storedSystemStatus,
+      approved: true,
+      sentToGenlayer: true,
+      coverage,
+      requirementsComparison,
     };
   }
 

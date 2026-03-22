@@ -17,6 +17,12 @@ interface UserEntity extends BaseEntity {
   token_balance: number;
 }
 
+interface FindAllUsersOptions {
+  limit?: number;
+  offset?: number;
+  isDeveloper?: boolean;
+}
+
 @Injectable()
 export class UserRepository extends BaseRepository<UserEntity> {
   protected readonly tableName = 'users';
@@ -68,11 +74,12 @@ export class UserRepository extends BaseRepository<UserEntity> {
     return this.delete(id);
   }
 
-  async findAllUsers(options?: {
-    limit?: number;
-    offset?: number;
-  }): Promise<UserEntity[]> {
+  async findAllUsers(options?: FindAllUsersOptions): Promise<UserEntity[]> {
     let query = this.client.from(this.tableName).select('*');
+
+    if (options?.isDeveloper !== undefined) {
+      query = query.eq('is_developer', options.isDeveloper);
+    }
 
     if (options?.limit) {
       query = query.limit(options.limit);

@@ -1,16 +1,19 @@
 import {
   Controller,
   Post,
+  Patch,
   Get,
   Param,
   Res,
   Request,
+  Body,
   UseGuards,
   NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { TestsService } from './tests.service';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
+import { SaveGithubRepoDto } from './dto/save-github-repo.dto';
 
 interface JwtPayload {
   sub: string;
@@ -36,6 +39,55 @@ export class TestsController {
     }
 
     return this.testsService.validateAndRunTests(contractId, req.user.sub);
+  }
+
+  @Patch('contracts/:id/github-repo')
+  @UseGuards(SupabaseAuthGuard)
+  async saveGithubRepoAndStartFlow(
+    @Param('id') id: string,
+    @Body() body: SaveGithubRepoDto,
+    @Request() req: Request & { user: JwtPayload },
+  ): Promise<{
+    message: string;
+    streamUrl: string;
+    coverageUrl: string;
+    features: string;
+    systemStatusId: number;
+  }> {
+    const contractId = parseInt(id, 10);
+
+    if (isNaN(contractId)) {
+      throw new NotFoundException('ID de contrato inválido');
+    }
+
+    return this.testsService.saveGithubRepoAndStartFlow(
+      contractId,
+      req.user.sub,
+      body.githubRepoUrl,
+    );
+  }
+
+  @Post('contracts/:id/genlayer/approve')
+  @UseGuards(SupabaseAuthGuard)
+  async approveContractWithGenlayer(
+    @Param('id') id: string,
+    @Request() req: Request & { user: JwtPayload },
+  ): Promise<{
+    message: string;
+    contractId: number;
+    systemStatusId: number;
+    approved: boolean;
+    sentToGenlayer: boolean;
+    coverage: number;
+    requirementsComparison: string;
+  }> {
+    const contractId = parseInt(id, 10);
+
+    if (isNaN(contractId)) {
+      throw new NotFoundException('ID de contrato inválido');
+    }
+
+    return this.testsService.submitGenlayerApproval(contractId, req.user.sub);
   }
 
   @Get('logs/:id/stream')
