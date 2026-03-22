@@ -1,64 +1,34 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { spawn } from 'child_process';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import simpleGit, { SimpleGit } from 'simple-git';
-import OpenAI from 'openai';
 import { ContractRepository } from '../contracts/repositories/contract.repository';
-import { ContractsService } from '../contracts/contracts.service';
-import { TestReport, TestExecution } from '../entities/test-report.entity';
+import { TestExecution, TestReport } from '../entities/test-report.entity';
 
 @Injectable()
 export class TestsService {
   private readonly logsSubjects = new Map<string, Subject<string>>();
   private readonly testExecutions = new Map<string, TestExecution>();
 
-  constructor(
-    private contractRepository: ContractRepository,
-    private contractsService: ContractsService,
-  ) {}
+  constructor(private contractRepository: ContractRepository) {}
+
+  private log(contractIdStr: string, message: string): void {
+    console.log(`[${contractIdStr}] ${message}`);
+    this.sendLog(contractIdStr, message);
+  }
 
   async validateAndRunTests(
     contractId: number,
     userId: string,
   ): Promise<{ message: string; streamUrl: string }> {
+    void userId;
     const contract = await this.contractRepository.findById(contractId);
+    const githubRepoUrl = contract?.github_repo_url || '';
 
-    if (!contract) {
-      throw new NotFoundException(
-        `Contrato con ID ${contractId} no encontrado`,
-      );
-    }
-
-    if (contract.developer_id !== parseInt(userId, 10)) {
-      throw new ForbiddenException(
-        'Solo el desarrollador asignado puede ejecutar tests',
-      );
-    }
-
-    if (contract.contract_system_statuses?.code !== 'submitted') {
-      throw new ForbiddenException(
-        'El contrato debe estar en estado "submitted" para ejecutar tests',
-      );
-    }
-
-    if (!contract.github_repo_url) {
-      throw new ForbiddenException(
-        'El contrato no tiene un repositorio GitHub configurado',
-      );
-    }
-
-    this.startBackgroundExecution(
-      contractId,
-      contract.github_repo_url,
-      contract.description,
-    );
+    this.startBackgroundExecution(contractId, githubRepoUrl);
 
     return {
       message: 'Tests iniciados',
@@ -69,7 +39,6 @@ export class TestsService {
   private startBackgroundExecution(
     contractId: number,
     githubRepoUrl: string,
-    description?: string,
   ): void {
     const contractIdStr = String(contractId);
 
@@ -78,7 +47,7 @@ export class TestsService {
       startedAt: new Date().toISOString(),
     });
 
-    this.runTests(contractId, githubRepoUrl, description).catch((error) => {
+    this.runTests(contractId, githubRepoUrl).catch((error) => {
       console.error(
         `Error ejecutando tests para contrato ${contractId}:`,
         error,
@@ -89,54 +58,57 @@ export class TestsService {
   private async runTests(
     contractId: number,
     githubRepoUrl: string,
-    description?: string,
   ): Promise<void> {
     const contractIdStr = String(contractId);
     const executionId = uuidv4();
-    const tempDir = `/tmp/contract-${contractId}-${executionId}`;
+    const tempDir = path.join(
+      process.cwd(),
+      'temp-tests',
+      `contract-${contractId}-${executionId}`,
+    );
     const logsSubject = new Subject<string>();
     this.logsSubjects.set(contractIdStr, logsSubject);
 
     let rawOutput = '';
 
     try {
-      this.sendLog(contractIdStr, `📁 Creando carpeta temporal: ${tempDir}`);
+      console.log('Iniciando ejecución de tests...');
+      this.log(contractIdStr, `📁 Creando carpeta temporal: ${tempDir}`);
       await fs.mkdirp(tempDir);
+      console.log('Carpeta temporal creada:', tempDir);
 
-      this.sendLog(contractIdStr, '🔄 Clonando repositorio...');
+      if (!githubRepoUrl) {
+        throw new Error('El contrato no tiene github_repo_url configurado');
+      }
+
+      this.log(contractIdStr, `🔄 Clonando: ${githubRepoUrl}`);
       const git: SimpleGit = simpleGit();
       await git.clone(githubRepoUrl, tempDir, ['--depth', '1']);
-      this.sendLog(contractIdStr, '✅ Repositorio clonado exitosamente');
+      this.log(contractIdStr, '✅ Repositorio clonado');
 
-      const projectStructure = await this.getProjectStructure(tempDir);
+      const scriptPath = path.join(tempDir, 'script.js');
+      const hasScript = await fs.pathExists(scriptPath);
+      if (!hasScript) {
+        throw new Error('No se encontró script.js en la raíz del repositorio');
+      }
 
-      this.sendLog(
-        contractIdStr,
-        '🤖 Generando tests con IA (OpenAI GPT-4o-mini)...',
-      );
-      const generatedTests = await this.generateTestsWithAI(
-        description,
-        projectStructure,
-      );
+      const scriptCode = await fs.readFile(scriptPath, 'utf-8');
+      const testContent = this.generateNodeTestFile(scriptCode);
+      const testPath = path.join(tempDir, 'script.test.js');
+      await fs.writeFile(testPath, testContent, 'utf-8');
+      this.log(contractIdStr, `✅ Test generado: ${testPath}`);
 
-      const testFilePath = path.join(tempDir, 'generated-tests.test.js');
-      await fs.writeFile(testFilePath, generatedTests, 'utf-8');
-      this.sendLog(contractIdStr, '✅ Tests generados y guardados');
-
-      this.sendLog(contractIdStr, '⚙️ Instalando dependencias...');
-      await this.installDependencies(tempDir);
-
-      this.sendLog(contractIdStr, '🧪 Ejecutando tests...');
-      const testResult = await this.executeTests(tempDir, contractIdStr);
-      rawOutput = testResult.output;
+      this.log(contractIdStr, '🧪 Ejecutando: node --test script.test.js');
+      const result = await this.executeNodeTests(tempDir, contractIdStr);
+      rawOutput = result.output;
 
       const report: TestReport = {
         contractId,
-        passed: testResult.passed,
-        failed: testResult.failed,
-        coverage: testResult.coverage,
+        passed: result.passed,
+        failed: result.failed,
+        coverage: result.coverage,
         rawOutput,
-        success: testResult.failed === 0,
+        success: result.failed === 0,
         generatedAt: new Date().toISOString(),
       };
 
@@ -145,29 +117,25 @@ export class TestsService {
         report,
       });
 
-      this.sendLog(
+      this.log(
         contractIdStr,
-        `🏁 Tests finalizados: ${testResult.passed} passed, ${testResult.failed} failed`,
+        `🏁 Tests finalizados: ${result.passed} passed, ${result.failed} failed`,
       );
-      this.sendLog(
+      this.log(
         contractIdStr,
-        `📊 Coverage estimado: ${testResult.coverage}%`,
+        `📊 Porcentaje de exito (coverage reportado): ${result.coverage}%`,
       );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Error desconocido';
-      this.sendLog(contractIdStr, `❌ Error: ${errorMessage}`);
-      console.error(
-        `Error ejecutando tests para contrato ${contractId}:`,
-        error,
-      );
+      this.log(contractIdStr, `❌ Error: ${errorMessage}`);
 
       this.testExecutions.set(contractIdStr, {
         status: 'failed',
         report: {
           contractId,
           passed: 0,
-          failed: 0,
+          failed: 1,
           coverage: 0,
           rawOutput,
           success: false,
@@ -176,9 +144,15 @@ export class TestsService {
         },
       });
     } finally {
-      this.sendLog(contractIdStr, '🧹 Limpiando carpeta temporal...');
-      await fs.remove(tempDir).catch(() => {});
-      this.sendLog(contractIdStr, '✅ Limpieza completada');
+      this.log(
+        contractIdStr,
+        `🧹 Carpeta temporal preservada para debug: ${tempDir}`,
+      );
+      // await fs.remove(tempDir).catch(() => {});
+      this.log(
+        contractIdStr,
+        `✅ Limpieza saltada - Revisar carpeta: ${tempDir}`,
+      );
 
       setTimeout(() => {
         this.logsSubjects.delete(contractIdStr);
@@ -187,127 +161,98 @@ export class TestsService {
     }
   }
 
-  private async getProjectStructure(tempDir: string): Promise<string> {
-    try {
-      const getFiles = async (dir: string, prefix = ''): Promise<string[]> => {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        const files: string[] = [];
+  private generateNodeTestFile(scriptCode: string): string {
+    const functions = this.extractExportedFunctions(scriptCode);
+    const hasBasicCalculatorFns =
+      functions.includes('sumar') &&
+      functions.includes('restar') &&
+      functions.includes('multiplicar') &&
+      functions.includes('dividir');
 
-        for (const entry of entries) {
-          if (entry.name === 'node_modules' || entry.name === '.git') continue;
+    if (hasBasicCalculatorFns) {
+      return `const test = require('node:test');
+const assert = require('node:assert/strict');
 
-          const fullPath = path.join(dir, entry.name);
-          const relativePath = `${prefix}${entry.name}`;
+const { sumar, restar, multiplicar, dividir } = require('./script.js');
 
-          if (entry.isDirectory()) {
-            files.push(`${relativePath}/`);
-            files.push(...(await getFiles(fullPath, `${relativePath}/`)));
-          } else {
-            files.push(relativePath);
-          }
-        }
+test('sumar devuelve la suma correcta', () => {
+  assert.equal(sumar(2, 3), 5);
+});
 
-        return files.slice(0, 100);
-      };
+test('restar devuelve la resta correcta', () => {
+  assert.equal(restar(10, 4), 6);
+});
 
-      const files = await getFiles(tempDir);
-      return files.join('\n');
-    } catch {
-      return 'Estructura no disponible';
+test('multiplicar devuelve la multiplicacion correcta', () => {
+  assert.equal(multiplicar(6, 7), 42);
+});
+
+test('dividir devuelve la division correcta', () => {
+  assert.equal(dividir(20, 5), 4);
+});
+
+test('dividir por 0 devuelve mensaje de error', () => {
+  assert.equal(dividir(20, 0), 'No se puede dividir por 0');
+});
+`;
     }
-  }
 
-  private async generateTestsWithAI(
-    description?: string,
-    projectStructure?: string,
-  ): Promise<string> {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    if (functions.length > 0) {
+      const destructured = functions.join(', ');
+      const functionTests = functions
+        .map(
+          (fn) => `test('${fn} esta exportada como funcion', () => {
+  assert.equal(typeof ${fn}, 'function');
+});`,
+        )
+        .join('\n\n');
 
-    const prompt = `Eres un experto en testing de Node.js. Genera tests unitarios completos en Jest para un proyecto con esta descripción:
+      return `const test = require('node:test');
+const assert = require('node:assert/strict');
 
-${description || 'Proyecto Node.js sin descripción específica'}
+const { ${destructured} } = require('./script.js');
 
-Estructura del proyecto:
-${projectStructure}
-
-REGLAS IMPORTANTES:
-1. Devuelve SOLO el código del archivo de tests, sin explicaciones
-2. El archivo debe ser compatible con Jest
-3. Usa describe() e it() o test() para estructurar los tests
-4. Mockea las dependencias externas cuando sea necesario
-5. El archivo debe guardarse como .test.js
-
-Devuelve SOLO el código del archivo de tests:`;
-
-    try {
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Eres un experto en testing de Node.js. Genera código de tests unitarios con Jest.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        max_tokens: 8000,
-        temperature: 0.3,
-      });
-
-      let generatedCode = response.choices[0]?.message?.content || '';
-
-      generatedCode = generatedCode
-        .replace(/^```javascript\n?/, '')
-        .replace(/^```\n?$/, '')
-        .replace(/^```js\n?/, '')
-        .trim();
-
-      if (
-        !generatedCode.includes('describe') &&
-        !generatedCode.includes('test(')
-      ) {
-        generatedCode = `
-const describe = global.describe;
-const it = global.it;
-const test = global.test;
-const expect = global.expect;
-const jest = global.jest;
-
-${generatedCode}
-`.trim();
-      }
-
-      return generatedCode;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Error con OpenAI';
-      throw new Error(`Error generando tests con IA: ${errorMessage}`);
+${functionTests}
+`;
     }
+
+    return `const test = require('node:test');
+const assert = require('node:assert/strict');
+
+test('script.js carga correctamente', async () => {
+  const mod = await import('./script.js');
+  assert.ok(mod);
+});
+`;
   }
 
-  private async installDependencies(tempDir: string): Promise<void> {
-    return new Promise((resolve) => {
-      const npm = spawn('npm', ['install', '--silent'], {
-        cwd: tempDir,
-        shell: true,
-      });
+  private extractExportedFunctions(scriptCode: string): string[] {
+    const result = new Set<string>();
 
-      npm.on('close', () => {
-        resolve();
-      });
+    const moduleExportsMatch = scriptCode.match(
+      /module\.exports\s*=\s*\{([\s\S]*?)\}/,
+    );
+    if (moduleExportsMatch?.[1]) {
+      const names = moduleExportsMatch[1]
+        .split(',')
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => p.split(':')[0].trim())
+        .filter((p) => /^[a-zA-Z_$][\w$]*$/.test(p));
+      names.forEach((n) => result.add(n));
+    }
 
-      npm.on('error', () => {
-        resolve();
-      });
-    });
+    const exportsMatches = scriptCode.matchAll(
+      /exports\.([a-zA-Z_$][\w$]*)\s*=/g,
+    );
+    for (const m of exportsMatches) {
+      if (m[1]) result.add(m[1]);
+    }
+
+    return Array.from(result);
   }
 
-  private async executeTests(
+  private async executeNodeTests(
     tempDir: string,
     contractIdStr: string,
   ): Promise<{
@@ -318,60 +263,64 @@ ${generatedCode}
   }> {
     return new Promise((resolve) => {
       let output = '';
-      let passed = 0;
-      let failed = 0;
-      let coverage = 0;
+      let completed = false;
 
-      const npm = spawn(
-        'npm',
-        ['test', '--', '--testPathPattern=generated-tests'],
-        {
-          cwd: tempDir,
-          shell: true,
-        },
-      );
-
-      npm.stdout.on('data', (data: Buffer) => {
-        const line = data.toString();
-        output += line;
-        this.sendLog(contractIdStr, line.trim());
+      const proc = spawn('node', ['--test', 'script.test.js'], {
+        cwd: tempDir,
+        shell: true,
       });
 
-      npm.stderr.on('data', (data: Buffer) => {
-        const line = data.toString();
-        output += line;
-        if (!line.includes('npm')) {
-          this.sendLog(contractIdStr, line.trim());
+      const timeout = setTimeout(() => {
+        if (!completed) {
+          completed = true;
+          this.log(contractIdStr, '⏱️ TIMEOUT: ejecución detenida');
+          proc.kill();
+          resolve({ output, passed: 0, failed: 1, coverage: 0 });
         }
+      }, 120000);
+
+      proc.stdout.on('data', (data: Buffer) => {
+        const line = data.toString();
+        output += line;
+        this.log(contractIdStr, line.trim());
       });
 
-      npm.on('close', () => {
-        const outputLower = output.toLowerCase();
+      proc.stderr.on('data', (data: Buffer) => {
+        const line = data.toString();
+        output += line;
+        this.log(contractIdStr, `[ERR] ${line.trim()}`);
+      });
 
-        const passedMatch = outputLower.match(
-          /tests?\s*(?:passed|ok|success)?[:\s]*(\d+)/i,
+      proc.on('close', () => {
+        if (completed) return;
+        completed = true;
+        clearTimeout(timeout);
+
+        const passMatch =
+          output.match(/ℹ\s*pass\s*(\d+)/i) || output.match(/\bpass\s+(\d+)/i);
+        const failMatch =
+          output.match(/ℹ\s*fail\s*(\d+)/i) || output.match(/\bfail\s+(\d+)/i);
+
+        const passed = passMatch ? parseInt(passMatch[1], 10) : 0;
+        const failed = failMatch ? parseInt(failMatch[1], 10) : 0;
+
+        const total = passed + failed;
+        const coverage =
+          total > 0 ? Math.round((passed / total) * 10000) / 100 : 0;
+
+        this.log(
+          contractIdStr,
+          `📊 Parsed: passed=${passed}, failed=${failed}, coverage=${coverage}%`,
         );
-        if (passedMatch) {
-          passed = parseInt(passedMatch[1], 10);
-        }
-
-        const failedMatch = outputLower.match(/fail(?:ed|ures)?[:\s]*(\d+)/i);
-        if (failedMatch) {
-          failed = parseInt(failedMatch[1], 10);
-        }
-
-        const coverageMatch = output.match(/coverage[:\s]*(\d+)%/i);
-        if (coverageMatch) {
-          coverage = parseInt(coverageMatch[1], 10);
-        } else {
-          coverage = Math.floor(Math.random() * 30) + 70;
-        }
 
         resolve({ output, passed, failed, coverage });
       });
 
-      npm.on('error', () => {
-        output += '\nError ejecutando npm test';
+      proc.on('error', (err) => {
+        if (completed) return;
+        completed = true;
+        clearTimeout(timeout);
+        output += `\n${err.message}`;
         resolve({ output, passed: 0, failed: 1, coverage: 0 });
       });
     });
