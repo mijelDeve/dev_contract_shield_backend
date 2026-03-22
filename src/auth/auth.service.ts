@@ -1,14 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-require-imports */
 import {
   Injectable,
   ConflictException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -34,10 +33,7 @@ export class AuthService {
     const supabaseKey = this.configService.get<string>(
       'supabase.serviceRoleKey',
     )!;
-    this.supabase = require('@supabase/supabase-js').createClient(
-      supabaseUrl,
-      supabaseKey,
-    );
+    this.supabase = createClient(supabaseUrl, supabaseKey) as SupabaseClient;
     this.jwtSecret =
       process.env.JWT_SECRET ||
       'your-super-secret-jwt-key-change-in-production';
